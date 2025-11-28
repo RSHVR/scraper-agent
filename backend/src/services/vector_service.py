@@ -1,8 +1,11 @@
 """Vector database service using Milvus with BGE-M3 embeddings."""
 import os
-# Disable HuggingFace progress bars before any imports
+# Disable HuggingFace progress bars and multiprocessing before any imports
 os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'
 os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 import json
 from pathlib import Path
@@ -71,6 +74,10 @@ class VectorService:
     def load_model(self):
         """Load BGE-M3 embedding model."""
         if self.model is None:
+            # Set PyTorch threads to 1 to prevent segfaults in Docker
+            import torch
+            torch.set_num_threads(1)
+
             logger.info("Loading BGE-M3 embedding model...")
             self.model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True)
             logger.info("BGE-M3 model loaded successfully")

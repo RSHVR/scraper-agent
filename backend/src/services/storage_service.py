@@ -273,6 +273,113 @@ class StorageService:
         session_dir.rmdir()
         return True
 
+    def save_raw_html(self, session_id: str, pages_data: List[Dict[str, str]]) -> Path:
+        """Save raw HTML data for scraped pages.
+
+        Args:
+            session_id: The session identifier
+            pages_data: List of dicts with 'page_url' and 'raw_html' keys
+
+        Returns:
+            Path to the saved file
+        """
+        data = {"pages": pages_data}
+        return self.save_json(session_id, "raw_html.json", data)
+
+    def count_scraped_pages(self, session_id: str) -> int:
+        """Count the number of scraped pages in a session.
+
+        Args:
+            session_id: The session identifier
+
+        Returns:
+            Number of pages scraped, or 0 if no data exists
+        """
+        raw_html_data = self.load_json(session_id, "raw_html.json")
+        if raw_html_data and "pages" in raw_html_data:
+            return len(raw_html_data["pages"])
+        return 0
+
+    def save_markdown(self, session_id: str, markdown_data: List[Dict[str, str]]) -> Path:
+        """Save markdown data to cleaned_markdown directory.
+
+        Args:
+            session_id: The session identifier
+            markdown_data: List of dicts with 'page_url', 'page_name', and 'markdown_content' keys
+
+        Returns:
+            Path to the saved file
+        """
+        # Extract domain from first page URL for the filename
+        if not markdown_data:
+            raise ValueError("No markdown data to save")
+
+        first_url = markdown_data[0].get("page_url", "")
+        from urllib.parse import urlparse
+        parsed = urlparse(first_url)
+        domain = parsed.netloc.replace("www.", "") or "unknown"
+
+        # Create cleaned_markdown directory
+        cleaned_markdown_dir = self.base_path / "cleaned_markdown"
+        cleaned_markdown_dir.mkdir(parents=True, exist_ok=True)
+
+        # Use session_id timestamp for filename
+        # session_id format: YYYYMMDD_HHMMSS_{uuid}
+        filename = f"{domain}__{session_id}.json"
+        file_path = cleaned_markdown_dir / filename
+
+        # Prepare data with metadata
+        data = {
+            "website": f"{parsed.scheme}://{parsed.netloc}",
+            "gym_name": domain.replace(".", " ").title(),
+            "pages": markdown_data
+        }
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            import json
+            json.dump(data, f, indent=2, default=str)
+
+        return file_path
+
+    def load_raw_html(self, filename: str) -> Optional[Dict[str, Any]]:
+        """Load cleaned markdown data from the cleaned_markdown directory.
+
+        Args:
+            filename: Name of the file in cleaned_markdown directory
+
+        Returns:
+            Loaded data or None if file doesn't exist
+        """
+        cleaned_markdown_dir = self.base_path / "cleaned_markdown"
+        file_path = cleaned_markdown_dir / filename
+
+        if not file_path.exists():
+            return None
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def list_raw_html_files(self) -> List[str]:
+        """List all cleaned markdown files in the cleaned_markdown directory.
+
+        Returns:
+            List of filenames sorted by modification time (newest first)
+        """
+        cleaned_markdown_dir = self.base_path / "cleaned_markdown"
+
+        if not cleaned_markdown_dir.exists():
+            return []
+
+        files = [
+            f.name
+            for f in cleaned_markdown_dir.iterdir()
+            if f.is_file() and f.name.endswith(".json")
+        ]
+
+        # Sort by filename (which contains timestamp)
+        files.sort(reverse=True)
+        return files
+
 
 # Global storage service instance
 storage_service = StorageService()

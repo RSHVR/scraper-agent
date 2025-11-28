@@ -224,6 +224,12 @@ Extract the data now. Return ONLY the JSON object, no other text."""
             Parsed data dict or None if invalid
         """
         try:
+            # Log the raw response for debugging
+            import logging
+            logger = logging.getLogger("scraper-agent")
+            logger.debug(f"Raw Claude response (first 500 chars): {response_text[:500]}")
+            logger.debug(f"Raw Claude response (last 500 chars): {response_text[-500:]}")
+
             # Try to find JSON in the response
             start_idx = response_text.find("{")
             end_idx = response_text.rfind("}") + 1
@@ -234,14 +240,23 @@ Extract the data now. Return ONLY the JSON object, no other text."""
                 end_idx = response_text.rfind("]") + 1
 
                 if start_idx == -1 or end_idx == 0:
+                    logger.error(f"No JSON found in response. Full response: {response_text}")
                     return None
 
             json_str = response_text[start_idx:end_idx]
+            logger.debug(f"Extracted JSON string (first 500 chars): {json_str[:500]}")
             data = json.loads(json_str)
 
             return data
 
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            import logging
+            logger = logging.getLogger("scraper-agent")
+            logger.error(f"JSON decode error: {e}")
+            logger.error(f"Failed JSON string: {response_text}")
             return None
-        except Exception:
+        except Exception as e:
+            import logging
+            logger = logging.getLogger("scraper-agent")
+            logger.error(f"Unexpected error in _extract_data: {e}")
             return None

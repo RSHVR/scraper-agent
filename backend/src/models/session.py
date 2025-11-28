@@ -33,6 +33,8 @@ class SessionMetadata(BaseModel):
     purpose: str
     mode: ScrapeMode
     error_message: Optional[str] = None
+    total_pages: Optional[int] = None
+    pages_scraped: Optional[int] = 0
 
 
 class Session(BaseModel):

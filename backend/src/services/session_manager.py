@@ -104,6 +104,35 @@ class SessionManager:
 
             return metadata
 
+    async def update_progress(
+        self,
+        session_id: str,
+        total_pages: Optional[int] = None,
+        pages_scraped: Optional[int] = None,
+    ) -> None:
+        """Update scraping progress in session metadata.
+
+        Args:
+            session_id: The session identifier
+            total_pages: Total number of pages to scrape (set once after URL discovery)
+            pages_scraped: Current count of pages scraped (updated incrementally)
+        """
+        metadata = self.storage.load_metadata(session_id)
+        if not metadata:
+            return
+
+        if total_pages is not None:
+            metadata.total_pages = total_pages
+
+        if pages_scraped is not None:
+            metadata.pages_scraped = pages_scraped
+
+        metadata.updated_at = datetime.now()
+        self.storage.save_metadata(session_id, metadata)
+
+        # Update in-memory tracking
+        self._active_sessions[session_id] = metadata
+
     async def save_schema(self, session_id: str, schema: Dict) -> None:
         """Save schema for a session.
 
@@ -130,6 +159,24 @@ class SessionManager:
             sources: List of source URLs
         """
         self.storage.save_json(session_id, "sources.json", {"sources": sources})
+
+    async def save_raw_html(self, session_id: str, pages_data: List[Dict]) -> None:
+        """Save raw HTML data for scraped pages.
+
+        Args:
+            session_id: The session identifier
+            pages_data: List of dicts with 'page_url' and 'raw_html' keys
+        """
+        self.storage.save_raw_html(session_id, pages_data)
+
+    async def save_markdown(self, session_id: str, markdown_data: List[Dict]) -> None:
+        """Save markdown data for scraped pages.
+
+        Args:
+            session_id: The session identifier
+            markdown_data: List of dicts with 'page_url', 'page_name', and 'markdown_content' keys
+        """
+        self.storage.save_markdown(session_id, markdown_data)
 
     async def get_session(self, session_id: str) -> Optional[Session]:
         """Get complete session data.

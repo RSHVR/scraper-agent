@@ -42,6 +42,7 @@ class SessionResponse(BaseModel):
     extracted_data: Optional[Dict[str, Any]] = None
     sources: List[str] = Field(default_factory=list)
     error_message: Optional[str] = None
+    pages_scraped: Optional[int] = None
 
     class Config:
         json_schema_extra = {

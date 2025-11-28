@@ -25,7 +25,7 @@ class EmbedResponse(BaseModel):
     total_chunks: Optional[int] = None
 
 
-@router.post("/embed", response_model=EmbedResponse)
+@router.post("/embed/", response_model=EmbedResponse)
 async def create_embed_task(
     request: EmbedRequest, background_tasks: BackgroundTasks
 ) -> EmbedResponse:
@@ -64,12 +64,14 @@ async def create_embed_task(
                 detail="Either session_id or filename must be provided"
             )
 
-        # Start the embedding process in the background
-        background_tasks.add_task(execute_embed_task, filename)
+        # Execute the embedding synchronously (it's fast - usually < 10 seconds)
+        result = await execute_embed_task(filename)
 
         return EmbedResponse(
-            status="pending",
-            message=f"Embedding task started for {filename}. Processing in background.",
+            status="completed" if result["success"] else "failed",
+            message=result["message"],
+            total_pages=result.get("total_pages"),
+            total_chunks=result.get("total_chunks")
         )
 
     except HTTPException:
@@ -79,20 +81,28 @@ async def create_embed_task(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def execute_embed_task(filename: str) -> None:
-    """Execute the embedding task in the background.
+async def execute_embed_task(filename: str) -> dict:
+    """Execute the embedding task.
 
     Args:
         filename: Name of the markdown file to embed
+
+    Returns:
+        Dictionary with success status, message, and metrics
     """
     try:
-        logger.info(f"Starting background embed task for {filename}")
+        logger.info(f"Starting embed task for {filename}")
 
         # Load cleaned markdown data
         data = storage_service.load_raw_html(filename)
         if not data:
             logger.error(f"Failed to load file: {filename}")
-            return
+            return {
+                "success": False,
+                "message": f"Failed to load file: {filename}",
+                "total_pages": 0,
+                "total_chunks": 0
+            }
 
         domain = data.get("website", "unknown")
         gym_name = data.get("gym_name", "Unknown Gym")
@@ -100,7 +110,12 @@ async def execute_embed_task(filename: str) -> None:
 
         if not pages:
             logger.warning(f"No pages found in {filename}")
-            return
+            return {
+                "success": False,
+                "message": f"No pages found in {filename}",
+                "total_pages": 0,
+                "total_chunks": 0
+            }
 
         # Initialize vector service and load model
         logger.info("Loading BGE-M3 embedding model...")
@@ -112,6 +127,7 @@ async def execute_embed_task(filename: str) -> None:
 
         # Process each page
         total_chunks = 0
+        pages_processed = 0
         for page_idx, page in enumerate(pages):
             page_name = page.get("page_name", "Unknown Page")
             page_url = page.get("page_url", "")
@@ -138,9 +154,23 @@ async def execute_embed_task(filename: str) -> None:
             )
 
             total_chunks += len(chunks)
+            pages_processed += 1
             logger.info(f"Embedded page {page_idx + 1}/{len(pages)}: {page_name} ({len(chunks)} chunks)")
 
-        logger.info(f"Embedding completed: {len(pages)} pages, {total_chunks} total chunks")
+        logger.info(f"Embedding completed: {pages_processed} pages, {total_chunks} total chunks")
+
+        return {
+            "success": True,
+            "message": f"Successfully embedded {pages_processed} pages with {total_chunks} total chunks",
+            "total_pages": pages_processed,
+            "total_chunks": total_chunks
+        }
 
     except Exception as e:
-        logger.error(f"Error in background embed task: {str(e)}")
+        logger.error(f"Error in embed task: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error during embedding: {str(e)}",
+            "total_pages": 0,
+            "total_chunks": 0
+        }

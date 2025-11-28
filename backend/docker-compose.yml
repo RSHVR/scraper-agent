@@ -64,6 +64,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: scraper-agent
+    shm_size: '4gb'
     ports:
       - "8000:8000"
     environment:

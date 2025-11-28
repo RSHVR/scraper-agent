@@ -97,6 +97,7 @@ class AskRequest(BaseModel):
     """Request model for Claude-powered Q&A."""
 
     question: str = Field(..., description="Question to ask about the gyms")
+    conversation_history: Optional[List[dict]] = Field(default=None, description="Previous conversation messages")
     top_k: int = Field(default=10, ge=1, le=50, description="Number of chunks to retrieve")
     filter_domain: Optional[str] = Field(default=None, description="Filter results by domain")
     filter_gym: Optional[str] = Field(default=None, description="Filter results by gym name")
@@ -218,13 +219,20 @@ Relevant Information from Gym Websites:
 
 Please provide a natural, helpful answer based on this information."""
 
+        # Build messages list with conversation history
+        messages = []
+        if request.conversation_history:
+            # Add previous conversation turns (excluding the current question)
+            messages.extend(request.conversation_history)
+
+        # Add current question with RAG context
+        messages.append({"role": "user", "content": user_prompt})
+
         answer_message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
             system=system_prompt,
-            messages=[
-                {"role": "user", "content": user_prompt}
-            ]
+            messages=messages
         )
 
         answer = answer_message.content[0].text

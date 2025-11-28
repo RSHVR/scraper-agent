@@ -68,11 +68,12 @@ class HTMLCleaner:
             logger.error(f"Error cleaning HTML: {e}")
             return ""
 
-    def extract_sections(self, html: str) -> List[Dict[str, str]]:
+    def extract_sections(self, html: str, url: Optional[str] = None) -> List[Dict[str, str]]:
         """Extract content from HTML as markdown-formatted text.
 
         Args:
             html: Raw HTML string
+            url: Optional URL for logging purposes
 
         Returns:
             List with single section containing markdown content
@@ -149,7 +150,8 @@ class HTMLCleaner:
                     'content': cleaned
                 }]
 
-            logger.warning("No meaningful content extracted")
+            url_info = f" from {url}" if url else ""
+            logger.warning(f"No meaningful content extracted{url_info}")
             return []
 
         except Exception as e:

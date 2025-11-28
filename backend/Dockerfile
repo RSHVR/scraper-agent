@@ -31,9 +31,8 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright dependencies manually (avoiding obsolete font packages)
+# Install Playwright dependencies (Chromium dependencies and fonts)
 RUN apt-get update && apt-get install -y \
-    # Chromium dependencies
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -51,7 +50,6 @@ RUN apt-get update && apt-get install -y \
     libcairo2 \
     libasound2 \
     libatspi2.0-0 \
-    # Fonts (using modern package names)
     fonts-liberation \
     fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*

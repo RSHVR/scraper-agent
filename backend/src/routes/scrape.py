@@ -104,14 +104,16 @@ async def get_session_status(session_id: str) -> Dict[str, Any]:
         if not metadata:
             raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
 
-        # Count pages scraped
-        pages_scraped = storage_service.count_scraped_pages(session_id)
+        # Use metadata fields instead of counting files
+        pages_scraped = metadata.pages_scraped or 0
+        total_pages = metadata.total_pages
 
         # Return status in format expected by frontend
         return {
             "session_id": session_id,
             "status": metadata.status.value,
             "pages_scraped": pages_scraped,
+            "total_pages": total_pages,
             "url": metadata.url,
             "created_at": metadata.created_at.isoformat() if metadata.created_at else None,
             "updated_at": metadata.updated_at.isoformat() if metadata.updated_at else None,

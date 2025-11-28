@@ -112,14 +112,23 @@ async def start_scraping(url: str, progress=gr.Progress()) -> Generator[Tuple[Op
 
                     status = session_data.get("status", "unknown")
                     pages = session_data.get("pages_scraped") or 0
+                    total = session_data.get("total_pages")
 
-                    # Update logs
-                    new_log = f"[{datetime.now().strftime('%H:%M:%S')}] Status: {status} | Pages scraped: {pages}"
+                    # Update logs with progress
+                    if total:
+                        new_log = f"[{datetime.now().strftime('%H:%M:%S')}] Status: {status} | Pages: {pages}/{total}"
+                    else:
+                        new_log = f"[{datetime.now().strftime('%H:%M:%S')}] Status: {status} | Pages scraped: {pages}"
+
                     logs = [new_log] + logs[:9]  # Keep last 10
 
-                    # Update progress bar
-                    progress_val = min(pages / 50.0, 0.99) if pages and pages > 0 else 0.1
-                    progress(progress_val, desc=f"Scraping: {status}")
+                    # Update progress bar (use real ratio if total available)
+                    if total and total > 0:
+                        progress_val = min(pages / float(total), 0.99)
+                        progress(progress_val, desc=f"Scraping: {pages}/{total} pages")
+                    else:
+                        progress_val = 0.1 if pages == 0 else min(pages / 50.0, 0.99)
+                        progress(progress_val, desc=f"Scraping: {status}")
 
                     if status == "completed":
                         logs.insert(0, f"[{datetime.now().strftime('%H:%M:%S')}] Scraping complete!")

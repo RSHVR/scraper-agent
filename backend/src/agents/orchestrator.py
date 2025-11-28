@@ -99,6 +99,11 @@ class OrchestratorAgent:
                 progress_callback, "urls_discovered", {"count": len(urls), "urls": urls[:5]}
             )
 
+            # Set total_pages in metadata after URL discovery
+            await self.session_manager.update_progress(
+                session_id, total_pages=len(urls), pages_scraped=0
+            )
+
             # Step 2: Scrape raw HTML from all URLs
             pages_data = []
             async with HTTPClient() as client:
@@ -120,6 +125,11 @@ class OrchestratorAgent:
                         continue
 
                     pages_data.append({"page_url": url, "raw_html": html})
+
+                    # Update progress count in metadata
+                    await self.session_manager.update_progress(
+                        session_id, pages_scraped=len(pages_data)
+                    )
 
                     self._send_progress(
                         progress_callback,

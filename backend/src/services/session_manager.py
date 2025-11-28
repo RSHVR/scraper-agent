@@ -104,6 +104,35 @@ class SessionManager:
 
             return metadata
 
+    async def update_progress(
+        self,
+        session_id: str,
+        total_pages: Optional[int] = None,
+        pages_scraped: Optional[int] = None,
+    ) -> None:
+        """Update scraping progress in session metadata.
+
+        Args:
+            session_id: The session identifier
+            total_pages: Total number of pages to scrape (set once after URL discovery)
+            pages_scraped: Current count of pages scraped (updated incrementally)
+        """
+        metadata = self.storage.load_metadata(session_id)
+        if not metadata:
+            return
+
+        if total_pages is not None:
+            metadata.total_pages = total_pages
+
+        if pages_scraped is not None:
+            metadata.pages_scraped = pages_scraped
+
+        metadata.updated_at = datetime.now()
+        self.storage.save_metadata(session_id, metadata)
+
+        # Update in-memory tracking
+        self._active_sessions[session_id] = metadata
+
     async def save_schema(self, session_id: str, schema: Dict) -> None:
         """Save schema for a session.
 

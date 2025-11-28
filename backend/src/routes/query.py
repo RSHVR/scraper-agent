@@ -222,8 +222,13 @@ Please provide a natural, helpful answer based on this information."""
         # Build messages list with conversation history
         messages = []
         if request.conversation_history:
-            # Add previous conversation turns (excluding the current question)
-            messages.extend(request.conversation_history)
+            # Sanitize conversation history to only include role and content
+            # (Gradio may include extra fields like 'metadata' that Anthropic API rejects)
+            for msg in request.conversation_history:
+                messages.append({
+                    "role": msg.get("role"),
+                    "content": msg.get("content")
+                })
 
         # Add current question with RAG context
         messages.append({"role": "user", "content": user_prompt})

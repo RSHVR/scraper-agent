@@ -3,10 +3,14 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Set
 import json
+import os
 
 from .config import settings
 from .routes import scrape, sessions, gym_scrape, embed, query
 from .utils.logger import logger
+
+# Suppress tokenizers parallelism warning
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Create FastAPI app
 app = FastAPI(

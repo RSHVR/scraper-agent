@@ -131,6 +131,24 @@ class SessionManager:
         """
         self.storage.save_json(session_id, "sources.json", {"sources": sources})
 
+    async def save_raw_html(self, session_id: str, pages_data: List[Dict]) -> None:
+        """Save raw HTML data for scraped pages.
+
+        Args:
+            session_id: The session identifier
+            pages_data: List of dicts with 'page_url' and 'raw_html' keys
+        """
+        self.storage.save_raw_html(session_id, pages_data)
+
+    async def save_markdown(self, session_id: str, markdown_data: List[Dict]) -> None:
+        """Save markdown data for scraped pages.
+
+        Args:
+            session_id: The session identifier
+            markdown_data: List of dicts with 'page_url', 'page_name', and 'markdown_content' keys
+        """
+        self.storage.save_markdown(session_id, markdown_data)
+
     async def get_session(self, session_id: str) -> Optional[Session]:
         """Get complete session data.
 

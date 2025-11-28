@@ -4,6 +4,7 @@ from typing import List
 
 from ..models import SessionResponse, SessionListResponse
 from ..services import session_manager
+from ..services.storage_service import storage_service
 from ..utils.logger import logger
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -34,6 +35,7 @@ async def list_sessions() -> SessionListResponse:
                 extracted_data=session.extracted_data,
                 sources=session.sources,
                 error_message=session.metadata.error_message,
+                pages_scraped=storage_service.count_scraped_pages(session.metadata.session_id),
             )
             for session in sessions
         ]
@@ -78,6 +80,7 @@ async def get_session(
             extracted_data=session.extracted_data,
             sources=session.sources,
             error_message=session.metadata.error_message,
+            pages_scraped=storage_service.count_scraped_pages(session_id),
         )
 
     except HTTPException:

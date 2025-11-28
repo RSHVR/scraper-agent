@@ -549,6 +549,227 @@ with gr.Blocks(title="Reppin' Assistant") as demo:
 
 ---
 
+### Phase 5: Incremental Progress Tracking (Simplified Approach)
+
+**Priority:** MEDIUM - Improves UX with real-time scraping progress
+
+#### Overview
+Currently, the scraping progress shows "Pages scraped: 0" during the entire scraping process, then jumps to the final count (e.g., "Pages scraped: 56") when complete. This plan implements incremental progress tracking by using the orchestrator's in-memory page count.
+
+#### 5.1 Add Progress Fields to SessionMetadata
+
+**File:** `backend/src/models/session.py`
+
+Add two new optional fields to track progress:
+```python
+class SessionMetadata(BaseModel):
+    """Metadata for a scraping session."""
+
+    session_id: str
+    status: SessionStatus
+    created_at: datetime
+    updated_at: datetime
+    url: str
+    purpose: str
+    mode: ScrapeMode
+    error_message: Optional[str] = None
+    total_pages: Optional[int] = None  # NEW: Total URLs discovered from sitemap
+    pages_scraped: Optional[int] = 0   # NEW: Pages successfully scraped so far
+```
+
+#### 5.2 Add Progress Update Method to SessionManager
+
+**File:** `backend/src/services/session_manager.py`
+
+Add a new method to update progress incrementally:
+```python
+async def update_progress(
+    self,
+    session_id: str,
+    total_pages: Optional[int] = None,
+    pages_scraped: Optional[int] = None
+) -> None:
+    """Update scraping progress in session metadata.
+
+    Args:
+        session_id: The session identifier
+        total_pages: Total number of pages to scrape (set once after URL discovery)
+        pages_scraped: Current count of pages scraped (updated incrementally)
+    """
+    metadata = self.storage.load_metadata(session_id)
+    if not metadata:
+        return
+
+    if total_pages is not None:
+        metadata.total_pages = total_pages
+
+    if pages_scraped is not None:
+        metadata.pages_scraped = pages_scraped
+
+    metadata.updated_at = datetime.now()
+    self.storage.save_metadata(session_id, metadata)
+```
+
+#### 5.3 Update Orchestrator to Track Progress
+
+**File:** `backend/src/agents/orchestrator.py`
+
+Make two updates to the `execute_scrape` method:
+
+**Update 1:** After URL discovery (after line 99), set `total_pages`:
+```python
+# Line 87-99: URL discovery
+urls = await self.sitemap_discovery.discover_from_robots(domain)
+
+if not urls:
+    await self._handle_error(session_id, "No URLs discovered from sitemaps")
+    self._send_progress(progress_callback, "error", {"message": "No URLs found in sitemaps"})
+    return session_id, False
+
+self._send_progress(
+    progress_callback, "urls_discovered", {"count": len(urls), "urls": urls[:5]}
+)
+
+# NEW: Set total_pages after URL discovery
+await self.session_manager.update_progress(
+    session_id,
+    total_pages=len(urls)
+)
+```
+
+**Update 2:** Inside scraping loop (after line 122), update `pages_scraped` incrementally:
+```python
+# Lines 104-128: Scraping loop
+pages_data = []
+async with HTTPClient() as client:
+    for idx, url in enumerate(urls):
+        self._send_progress(
+            progress_callback,
+            "scraping_page",
+            {"url": url, "progress": f"{idx + 1}/{len(urls)}"},
+        )
+
+        html, error = await client.fetch_url(url)
+
+        if error:
+            self._send_progress(
+                progress_callback,
+                "page_error",
+                {"url\": url, "error": error},
+            )
+            continue
+
+        pages_data.append({"page_url": url, "raw_html": html})
+
+        # NEW: Update pages_scraped incrementally using list length
+        await self.session_manager.update_progress(
+            session_id,
+            pages_scraped=len(pages_data)
+        )
+
+        self._send_progress(
+            progress_callback,
+            "page_scraped",
+            {"url": url, "html_length": len(html)},
+        )
+```
+
+#### 5.4 Update Session Status Endpoint
+
+**File:** `backend/src/routes/scrape.py`
+
+The endpoint at lines 90-125 already returns `pages_scraped`, but currently uses `count_scraped_pages()` which counts files on disk. Update it to use the metadata fields:
+
+```python
+@router.get("/sessions/{session_id}")
+async def get_session_status(session_id: str) -> Dict[str, Any]:
+    """Get the status of a scraping session."""
+    try:
+        # Load session metadata
+        metadata = storage_service.load_metadata(session_id)
+
+        if not metadata:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+        # Use metadata fields instead of counting files
+        pages_scraped = metadata.pages_scraped or 0
+        total_pages = metadata.total_pages
+
+        # Return status in format expected by frontend
+        return {
+            "session_id": session_id,
+            "status": metadata.status.value,
+            "pages_scraped": pages_scraped,
+            "total_pages": total_pages,  # NEW: Include total for frontend
+            "url": metadata.url,
+            "created_at": metadata.created_at.isoformat() if metadata.created_at else None,
+            "updated_at": metadata.updated_at.isoformat() if metadata.updated_at else None,
+            "error_message": metadata.error_message,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting session status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+#### 5.5 Update Frontend Progress Display (Optional)
+
+**File:** `frontend/app.py`
+
+The frontend already polls and displays `pages_scraped` (line 114). Optionally enhance to show "X/Y pages":
+
+```python
+# Line 103-135: Polling loop
+while attempt < max_attempts:
+    try:
+        resp = await client.get(f"{API_URL}/api/sessions/{session_id}")
+        resp.raise_for_status()
+        session_data = resp.json()
+
+        status = session_data.get("status", "unknown")
+        pages = session_data.get("pages_scraped") or 0
+        total = session_data.get("total_pages")  # NEW: Get total
+
+        # Update logs with progress
+        if total:
+            new_log = f"[{datetime.now().strftime('%H:%M:%S')}] Status: {status} | Pages: {pages}/{total}"
+        else:
+            new_log = f"[{datetime.now().strftime('%H:%M:%S')}] Status: {status} | Pages scraped: {pages}"
+
+        logs = [new_log] + logs[:9]  # Keep last 10
+
+        # Update progress bar (use real ratio if total available)
+        if total and total > 0:
+            progress_val = min(pages / float(total), 0.99)
+        else:
+            progress_val = min(pages / 50.0, 0.99) if pages > 0 else 0.1
+
+        progress(progress_val, desc=f"Scraping: {status}")
+
+        # ... rest of polling logic ...
+```
+
+#### Benefits
+
+1. **Real-Time Feedback:** Frontend shows "15/23 pages" instead of "0 pages" during scraping
+2. **Accurate Progress Bar:** Progress bar based on actual ratio (15/23 = 65%) instead of estimated (15/50 = 30%)
+3. **Simple Implementation:** Uses list length from existing `pages_data` list, no extra file operations
+4. **No Race Conditions:** Metadata updates happen after page is added to list
+5. **Minimal Performance Impact:** One metadata write per page (already fast JSON serialization)
+
+#### Testing
+
+1. Start scraping a multi-page site
+2. Observe logs during scraping:
+   - Should show "Pages: 1/23", "Pages: 2/23", etc.
+   - Not "Pages: 0", "Pages: 0", "Pages: 23"
+3. Verify progress bar moves smoothly
+4. Verify final count matches total
+
+---
+
 ## Testing Checklist
 
 ### Phase 1 Testing

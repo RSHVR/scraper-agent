@@ -279,12 +279,13 @@ async def chat_fn(message: str, history):
 
         # Format with sources
         if sources:
-            formatted = f"{answer}\n\n**Sources:**\n"
-            for i, s in enumerate(sources[:3], 1):
-                gym_name = s.get('gym_name', 'Unknown')
-                page_name = s.get('page_name', 'Unknown')
-                score = s.get('score', 0.0)
-                formatted += f"{i}. {gym_name} - {page_name} (relevance: {score:.2f})\n"
+            formatted = answer
+            # formatted = f"{answer}\n\n**Sources:**\n"
+            # for i, s in enumerate(sources[:3], 1):
+            #     gym_name = s.get('gym_name', 'Unknown')
+            #     page_name = s.get('page_name', 'Unknown')
+            #     score = s.get('score', 0.0)
+            #     formatted += f"{i}. {gym_name} - {page_name} (relevance: {score:.2f})\n"
         else:
             formatted = answer
 

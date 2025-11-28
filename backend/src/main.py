@@ -5,7 +5,7 @@ from typing import Dict, Set
 import json
 
 from .config import settings
-from .routes import scrape, sessions, gym_scrape
+from .routes import scrape, sessions, gym_scrape, embed, query
 from .utils.logger import logger
 
 # Create FastAPI app
@@ -87,6 +87,8 @@ manager = ConnectionManager()
 app.include_router(scrape.router)
 app.include_router(gym_scrape.router)
 app.include_router(sessions.router)
+app.include_router(embed.router)
+app.include_router(query.router)
 
 
 # WebSocket endpoint

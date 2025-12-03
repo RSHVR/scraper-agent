@@ -1,7 +1,7 @@
 ---
 title: Agentic Scraper
 emoji: 🤖
-colorFrom: orange
+colorFrom: yellow
 colorTo: red
 sdk: docker
 app_port: 7860

@@ -21,10 +21,13 @@ custom_css = """
 .gradio-container {
     background-color: #252523 !important;
     color: #F7F7FA !important;
+    padding-left: calc((100% - 800px) / 2) !important;
+    padding-right: calc((100% - 800px) / 2) !important;
 }
 body {
     background-color: #252523 !important;
 }
+
 /* DEPRECATED: Removed logo styling */
 .log-container {
     max-height: 200px;
@@ -78,9 +81,45 @@ button.primary:hover, .primary:hover {
     border-color: #b14e31 !important;
     color: #FFFFFF !important;
 }
+/* Form containers (URL input and question input rows) */
+.form {
+    background-color: #262624 !important;
+    background: #262624 !important;
+}
+/* Block containers */
+.block,
+.block.url-input-box {
+    background-color: #262624 !important;
+    background: #262624 !important;
+}
 /* URL input textbox background */
-.url-input-box textarea, .url-input-box input {
-    background-color: #30302E !important;
+.url-input-box textarea,
+.url-input-box input,
+.block.url-input-box textarea,
+.block.url-input-box input {
+    background-color: #1F1E1D !important;
+}
+/* Query input textbox background */
+.question-input textarea,
+.question-input input,
+.block.question-input textarea,
+.block.question-input input {
+    background-color: #1F1E1D !important;
+}
+/* All textbox inputs */
+.gradio-container textarea,
+.gradio-container input[type="text"] {
+    background-color: #1F1E1D !important;
+}
+/* Question input container */
+.block.question-input {
+    background-color: #262624 !important;
+}
+/* Example buttons background */
+.example,
+.example-content {
+    background-color: #1F1E1D !important;
+    background: #1F1E1D !important;
 }
 """
 
@@ -457,12 +496,13 @@ with gr.Blocks(title="Agentic Scraper") as demo:  # DEPRECATED: was "Reppin' Ass
         ]  # DEPRECATED: was gym-specific examples
     )
 
-    with gr.Row():
+    with gr.Row(elem_classes="question-row"):
         msg_input = gr.Textbox(
             label="Your Question",
             placeholder="Ask a question about the scraped content...",
             scale=4,
-            interactive=True
+            interactive=True,
+            elem_classes="question-input"
         )
         send_btn = gr.Button("Send", scale=1, interactive=True)
 

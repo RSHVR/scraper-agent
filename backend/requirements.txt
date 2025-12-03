@@ -10,7 +10,8 @@ typer==0.9.0
 rich==13.7.0
 # Vector database - migrated to ChromaDB for HuggingFace Spaces
 chromadb>=0.4.0
-spaces>=0.1.0
+# Note: spaces library only works with Gradio SDK, not Docker SDK
+# spaces>=0.1.0  # Not compatible with Docker SDK deployment
 # pymilvus==2.3.4  # Deprecated - replaced by ChromaDB
 FlagEmbedding==1.2.3
 playwright==1.40.0

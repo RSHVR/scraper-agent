@@ -7,6 +7,7 @@ sdk: gradio
 sdk_version: "6.0.1"
 app_file: frontend/app.py
 python_version: "3.11"
+pinned: false
 ---
 
 # Agentic Scraper

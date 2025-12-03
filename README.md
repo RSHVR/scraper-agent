@@ -1,4 +1,13 @@
-# Scraper Agent
+---
+title: Agentic Scraper
+emoji: 🤖
+colorFrom: orange
+colorTo: red
+sdk: docker
+app_port: 7860
+---
+
+# Agentic Scraper
 
 AI-powered web scraping system with intelligent content extraction, vector embeddings, and natural language Q&A capabilities.
 

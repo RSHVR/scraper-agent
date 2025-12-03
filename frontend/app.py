@@ -15,11 +15,11 @@ API_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 custom_css = """
 /* Global theme colors */
 .gradio-container {
-    background-color: #0E172A !important;
+    background-color: #262624 !important;
     color: #F7F7FA !important;
 }
 body {
-    background-color: #0E172A !important;
+    background-color: #262624 !important;
 }
 /* DEPRECATED: Removed logo styling */
 .log-container {
@@ -65,12 +65,14 @@ body {
 }
 /* Primary button styling */
 button.primary, .primary {
-    background-color: #61A6FB !important;
-    border-color: #61A6FB !important;
+    background-color: #C6603F !important;
+    border-color: #C6603F !important;
+    color: #FFFFFF !important;
 }
 button.primary:hover, .primary:hover {
-    background-color: #4a8fd9 !important;
-    border-color: #4a8fd9 !important;
+    background-color: #b14e31 !important;
+    border-color: #b14e31 !important;
+    color: #FFFFFF !important;
 }
 """
 
@@ -328,7 +330,7 @@ with gr.Blocks(title="Agentic Scraper") as demo:  # DEPRECATED: was "Reppin' Ass
     gr.HTML(f"<style>{custom_css}</style>")
 
     # DEPRECATED: Removed Reppin' logo section
-    gr.HTML("<h1>Agentic <span style='color: #61A6FB;'>Scraper</span></h1>")  # DEPRECATED: was "Reppin' <span...>Assistant</span>"
+    gr.HTML("<h1>Agentic <span style='color: #C6603F;'>Scraper</span></h1>")  # DEPRECATED: was "Reppin' <span...>Assistant</span>"
     gr.Markdown("Scrape any website and ask questions powered by AI")  # DEPRECATED: was "Register your gym, or find new ones through our agent"
 
     # State

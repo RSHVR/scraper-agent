@@ -556,7 +556,20 @@ with gr.Blocks(title="Agentic Scraper") as demo:  # DEPRECATED: was "Reppin' Ass
         outputs=[chatbot]
     )
 
+
+def validate_environment():
+    """Check required environment variables before starting."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key or not api_key.strip():
+        print("[ERROR] ANTHROPIC_API_KEY environment variable must be set")
+        print("[ERROR] Add it in your Space's Settings > Repository secrets")
+        sys.exit(1)
+    print(f"[STARTUP] ANTHROPIC_API_KEY is set: {api_key[:15]}...")
+
+
 if __name__ == "__main__":
+    # Validate environment before starting
+    validate_environment()
     # Start backend server
     backend_process = start_backend_server()
 

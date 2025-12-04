@@ -79,13 +79,25 @@ class VectorServiceChroma:
     def load_model(self):
         """Load BGE-M3 embedding model."""
         if self.model is None:
-            # Set PyTorch threads to 1 to prevent segfaults in Docker
-            import torch
-            torch.set_num_threads(1)
+            try:
+                # Set PyTorch threads to 1 to prevent segfaults in Docker
+                import torch
+                import time
+                torch.set_num_threads(1)
 
-            logger.info("Loading BGE-M3 embedding model...")
-            self.model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True)
-            logger.info("BGE-M3 model loaded successfully")
+                logger.info("=" * 60)
+                logger.info("Loading BGE-M3 embedding model...")
+                logger.info("This may take 2-5 minutes on first run (downloading ~2GB)")
+                logger.info("=" * 60)
+
+                start_time = time.time()
+                self.model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True)
+                elapsed = time.time() - start_time
+
+                logger.info(f"✓ BGE-M3 model loaded successfully in {elapsed:.1f}s")
+            except Exception as e:
+                logger.error(f"✗ Failed to load BGE-M3 model: {e}", exc_info=True)
+                raise
 
     def create_collection(self, dim: int = 1024):
         """Create or get ChromaDB collection.

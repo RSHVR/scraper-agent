@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+API_URL = os.getenv("API_BASE_URL", "http://localhost:8080")
 
 custom_css = """
 /* Global theme colors */
@@ -144,7 +144,7 @@ def start_backend_server():
         sys.executable, "-m", "uvicorn",
         "src.main:app",
         "--host", "0.0.0.0",
-        "--port", "8000",
+        "--port", "8080",
         "--log-level", "info"
     ]
 

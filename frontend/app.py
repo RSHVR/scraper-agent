@@ -21,8 +21,8 @@ custom_css = """
 .gradio-container {
     background-color: #252523 !important;
     color: #F7F7FA !important;
-    padding-left: calc((100% - 800px) / 2) !important;
-    padding-right: calc((100% - 800px) / 2) !important;
+    padding-left: max(0px, calc((100% - 800px) / 2)) !important;
+    padding-right: max(0px, calc((100% - 800px) / 2)) !important;
 }
 body {
     background-color: #252523 !important;
@@ -91,7 +91,9 @@ button.primary:hover, .primary:hover {
 .block.url-input-box {
     background-color: #262624 !important;
     background: #262624 !important;
+    border: 0;
 }
+
 /* URL input textbox background */
 .url-input-box textarea,
 .url-input-box input,
@@ -110,6 +112,7 @@ button.primary:hover, .primary:hover {
 .gradio-container textarea,
 .gradio-container input[type="text"] {
     background-color: #1F1E1D !important;
+    border-radius: 20px !important;
 }
 /* Question input container */
 .block.question-input {

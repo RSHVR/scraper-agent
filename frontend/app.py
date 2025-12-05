@@ -239,7 +239,7 @@ def format_logs(logs_list: List[str]) -> str:
     return html
 
 
-async def start_scraping(url: str, progress=gr.Progress()) -> Generator[Tuple[Optional[str], str], None, None]:
+async def start_scraping(url: str, mode: str, progress=gr.Progress()) -> Generator[Tuple[Optional[str], str], None, None]:
     """Poll scraping session for progress updates."""
     if not url or not url.strip():
         yield None, format_logs(["Error: URL is required"])
@@ -258,7 +258,7 @@ async def start_scraping(url: str, progress=gr.Progress()) -> Generator[Tuple[Op
                 f"{API_URL}/api/scrape",
                 json={
                     "url": url,
-                    "mode": "whole-site",
+                    "mode": mode,
                     "purpose": "Web scraping for Q&A"
                 }
             )
@@ -491,6 +491,15 @@ with gr.Blocks(title="Agentic Scraper") as demo:  # DEPRECATED: was "Reppin' Ass
         )
         scrape_btn = gr.Button("Start Scraping", variant="primary", scale=1)
 
+    # Mode selection radio
+    mode_radio = gr.Radio(
+        choices=["single-page", "whole-site"],
+        value="whole-site",
+        label="Scraping Mode",
+        info="Single-page: scrape only this URL | Whole-site: crawl entire website",
+        elem_classes="mode-radio"
+    )
+
     # Progress Section
     with gr.Group():
         gr.Markdown("### Scraping Progress")
@@ -536,7 +545,7 @@ with gr.Blocks(title="Agentic Scraper") as demo:  # DEPRECATED: was "Reppin' Ass
     # Event Handlers with .then() chaining
     scrape_event = scrape_btn.click(
         fn=start_scraping,
-        inputs=[url_input],
+        inputs=[url_input, mode_radio],
         outputs=[session_id_state, scrape_logs]
     ).then(
         fn=start_embedding,

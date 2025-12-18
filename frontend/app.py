@@ -1,35 +1,13 @@
 """Gradio frontend for web scraping and Q&A system - Single Process for HuggingFace Spaces."""
-import sys
+import asyncio
 import os
+import sys
+from datetime import datetime
+from typing import Optional, List, Tuple, Generator
+from pathlib import Path
 
-# Early diagnostic logging - runs before any other imports
-print("[BOOT] Starting application...", flush=True)
-print(f"[BOOT] Python version: {sys.version}", flush=True)
-print(f"[BOOT] Working directory: {os.getcwd()}", flush=True)
-
-try:
-    import asyncio
-    from datetime import datetime
-    from typing import Optional, List, Tuple, Generator
-    from pathlib import Path
-    print("[BOOT] Standard library imports OK", flush=True)
-except Exception as e:
-    print(f"[BOOT] FATAL: Standard library import failed: {e}", flush=True)
-    sys.exit(1)
-
-try:
-    import gradio as gr
-    print(f"[BOOT] Gradio {gr.__version__} imported OK", flush=True)
-except Exception as e:
-    print(f"[BOOT] FATAL: Gradio import failed: {e}", flush=True)
-    sys.exit(1)
-
-try:
-    from dotenv import load_dotenv
-    print("[BOOT] python-dotenv imported OK", flush=True)
-except Exception as e:
-    print(f"[BOOT] FATAL: python-dotenv import failed: {e}", flush=True)
-    sys.exit(1)
+import gradio as gr
+from dotenv import load_dotenv
 
 # Add backend to path for direct imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -38,52 +16,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 SCRIPT_DIR = Path(__file__).parent.resolve()
 
 load_dotenv()
-print("[BOOT] Environment loaded", flush=True)
 
 # Import backend services directly (no subprocess)
-try:
-    from backend.src.config import settings
-    print("[BOOT] Backend config imported OK", flush=True)
-except Exception as e:
-    print(f"[BOOT] FATAL: Backend config import failed: {e}", flush=True)
-    sys.exit(1)
-
-try:
-    from backend.src.models import ScrapeRequest, ScrapeMode, SessionStatus
-    print("[BOOT] Backend models imported OK", flush=True)
-except Exception as e:
-    print(f"[BOOT] FATAL: Backend models import failed: {e}", flush=True)
-    sys.exit(1)
-
-try:
-    from backend.src.services import storage_service, vector_service, session_manager
-    print("[BOOT] Backend services imported OK", flush=True)
-except Exception as e:
-    print(f"[BOOT] FATAL: Backend services import failed: {e}", flush=True)
-    sys.exit(1)
-
-try:
-    from backend.src.agents import orchestrator
-    print("[BOOT] Backend orchestrator imported OK", flush=True)
-except Exception as e:
-    print(f"[BOOT] FATAL: Backend orchestrator import failed: {e}", flush=True)
-    sys.exit(1)
-
-try:
-    import anthropic
-    print("[BOOT] Anthropic SDK imported OK", flush=True)
-except Exception as e:
-    print(f"[BOOT] FATAL: Anthropic import failed: {e}", flush=True)
-    sys.exit(1)
-
-try:
-    import ollama
-    print("[BOOT] Ollama SDK imported OK", flush=True)
-except Exception as e:
-    print(f"[BOOT] FATAL: Ollama import failed: {e}", flush=True)
-    sys.exit(1)
-
-print("[BOOT] All imports completed successfully", flush=True)
+from backend.src.config import settings
+from backend.src.models import ScrapeRequest, ScrapeMode, SessionStatus
+from backend.src.services import storage_service, vector_service, session_manager
+from backend.src.agents import orchestrator
+import anthropic
+import ollama
 
 custom_css = """
 /* Global theme colors */

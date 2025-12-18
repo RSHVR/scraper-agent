@@ -270,11 +270,36 @@ def format_logs(logs_list: List[str]) -> str:
     return html
 
 
+def normalize_url(url: str) -> str:
+    """Normalize user URL input to a valid URL with scheme.
+
+    Handles:
+    - https://www.website.com (unchanged)
+    - www.website.com -> https://www.website.com
+    - website.com -> https://website.com
+    - domain.website.com -> https://domain.website.com
+    """
+    if not url:
+        return url
+
+    url = url.strip()
+
+    # Already has a scheme
+    if url.startswith(('http://', 'https://')):
+        return url
+
+    # Add https:// prefix
+    return f'https://{url}'
+
+
 async def start_scraping(url: str, mode: str, progress=gr.Progress()) -> Generator[Tuple[Optional[str], str], None, None]:
     """Execute scraping directly using orchestrator (no HTTP calls)."""
     if not url or not url.strip():
         yield None, format_logs(["Error: URL is required"])
         return
+
+    # Normalize URL (add https:// if missing)
+    url = normalize_url(url)
 
     logs = []
     session_id = None

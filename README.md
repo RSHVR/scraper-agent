@@ -1,8 +1,8 @@
 ---
-title: Agentic Scraper
-emoji: 🤖
-colorFrom: yellow
-colorTo: red
+title: Website Chat
+emoji: 💬
+colorFrom: blue
+colorTo: purple
 sdk: docker
 pinned: false
 ---

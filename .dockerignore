@@ -35,6 +35,9 @@ data/
 chroma_db/
 backend/chroma_db/
 backend/data/
+backend/etcd_data/
+backend/milvus_data/
+backend/minio_data/
 *.sqlite3
 *.db
 
@@ -64,3 +67,8 @@ docs/
 
 # Test files
 backend/test_*.py
+backend/tests/
+
+# Development files
+backend/inspect_schema.py
+backend/Gym-Scraping-Instructions.txt

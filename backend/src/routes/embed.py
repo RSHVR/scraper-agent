@@ -25,6 +25,17 @@ class EmbedResponse(BaseModel):
     total_chunks: Optional[int] = None
 
 
+@router.post("/clear-vectors")
+async def clear_vectors():
+    """Clear all vectors from ChromaDB collection."""
+    try:
+        vector_service.clear_collection()
+        return {"status": "success", "message": "Vector collection cleared"}
+    except Exception as e:
+        logger.error(f"Error clearing vectors: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/embed/", response_model=EmbedResponse)
 async def create_embed_task(
     request: EmbedRequest, background_tasks: BackgroundTasks

@@ -509,6 +509,32 @@ class VectorServiceCohere:
             logger.error(f"Failed to delete chunks for domain {domain}: {e}")
             raise
 
+    def clear_collection(self):
+        """Clear all data from the collection by deleting and recreating it."""
+        self._connect()
+
+        try:
+            # Delete the collection if it exists
+            try:
+                self.client.delete_collection(self.collection_name)
+                logger.info(f"Deleted collection '{self.collection_name}'")
+            except Exception:
+                pass  # Collection may not exist yet
+
+            # Recreate empty collection
+            self.collection = self.client.create_collection(
+                name=self.collection_name,
+                metadata={"hnsw:space": "cosine"}
+            )
+            logger.info(f"Recreated empty collection '{self.collection_name}'")
+
+            # Clear embedding cache
+            self._embedding_cache.clear()
+
+        except Exception as e:
+            logger.error(f"Failed to clear collection: {e}")
+            raise
+
     def close(self):
         """Close connections."""
         self.collection = None

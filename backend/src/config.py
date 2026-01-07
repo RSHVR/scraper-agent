@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # Cohere API Configuration
     cohere_api_key: str = ""  # Required - set via COHERE_API_KEY env var
 
+    # HuggingFace Configuration
+    huggingface_api_key: str = ""  # Set via HUGGINGFACE_API_KEY env var
+
     # Ollama Configuration
     ollama_host: str = "http://localhost:11434"  # Local Ollama by default
     ollama_api_key: str = ""  # Only needed for Ollama Cloud

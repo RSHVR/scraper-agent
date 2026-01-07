@@ -1,8 +1,9 @@
-"""LLM Provider abstraction for Claude and Ollama."""
+"""LLM Provider abstraction for Claude, Ollama, and HuggingFace."""
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict
 import anthropic
 import ollama
+from huggingface_hub import InferenceClient
 
 from ..config import settings
 from ..utils.logger import logger
@@ -133,6 +134,59 @@ class OllamaProvider(LLMProvider):
     def get_name(self) -> str:
         """Return provider name for logging."""
         return f"Ollama ({self.model})"
+
+
+class HuggingFaceProvider(LLMProvider):
+    """HuggingFace Inference API provider."""
+
+    def __init__(self, model: str, provider: Optional[str] = None, api_key: Optional[str] = None):
+        """Initialize HuggingFace provider.
+
+        Args:
+            model: Model ID (e.g., "moonshotai/Kimi-K2-Instruct")
+            provider: Optional provider routing (fastest, cheapest, or provider name)
+            api_key: Optional API key (defaults to settings.huggingface_api_key)
+        """
+        self.model = model
+        self.provider = provider if provider and provider != "(none)" else None
+        # Append provider suffix if specified
+        self.full_model = f"{model}:{self.provider}" if self.provider else model
+        token = api_key or settings.huggingface_api_key
+        self.client = InferenceClient(token=token)
+        logger.info(f"[LLM] Initialized HuggingFace client for {self.full_model}")
+
+    def chat(self, messages: List[Dict], system: Optional[str] = None, max_tokens: int = 1024) -> str:
+        """Send chat completion request to HuggingFace Inference API.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+            system: Optional system prompt
+            max_tokens: Maximum tokens to generate
+
+        Returns:
+            Generated text response
+        """
+        logger.info(f"[LLM] Calling HuggingFace {self.full_model}...")
+
+        # Prepend system message if provided
+        if system:
+            messages = [{"role": "system", "content": system}] + messages
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.full_model,
+                messages=messages,
+                max_tokens=max_tokens
+            )
+            logger.info(f"[LLM] HuggingFace {self.full_model} responded")
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"[LLM] HuggingFace {self.full_model} failed: {e}")
+            raise
+
+    def get_name(self) -> str:
+        """Return provider name for logging."""
+        return f"HuggingFace ({self.full_model})"
 
 
 def get_query_provider(provider_type: str = "claude") -> LLMProvider:

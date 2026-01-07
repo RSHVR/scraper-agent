@@ -24,6 +24,7 @@ from backend.src.services import storage_service, vector_service, session_manage
 from backend.src.agents import orchestrator
 import anthropic
 import ollama
+from huggingface_hub import InferenceClient
 
 custom_css = """
 /* Global theme colors */
@@ -149,30 +150,27 @@ button.primary:hover, .primary:hover {
 /* Glass form containers */
 .form {
     background: rgba(38, 38, 36, 0.6) !important;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 16px;
+    /* backdrop-filter removed to fix dropdown issues */
 }
 
 /* Glass block containers */
 .block,
 .block.url-input-box {
     background: rgba(38, 38, 36, 0.5) !important;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 12px;
+    /* backdrop-filter removed to fix dropdown issues */
 }
 
 /* Glass panels/groups */
 .gr-group, .gr-box {
     background: rgba(38, 38, 36, 0.6) !important;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 16px;
     padding: 16px;
+    /* backdrop-filter removed to fix dropdown issues */
 }
 
 /* Glass inputs */
@@ -234,6 +232,32 @@ button.primary:hover, .primary:hover {
 /* Subtle glow on section headers */
 .gr-markdown h3 {
     text-shadow: 0 0 20px rgba(198, 96, 63, 0.3);
+}
+
+/* ============================================
+   DROPDOWN FIX - Ensure dropdowns can expand
+   ============================================ */
+/* Allow dropdown options to overflow outside containers */
+.gr-accordion,
+.accordion,
+.gr-group,
+.gr-box,
+.form,
+.block,
+.row,
+[class*="row"],
+[class*="group"] {
+    overflow: visible !important;
+}
+
+/* Dropdown options list - ensure it appears above everything */
+ul[role="listbox"],
+div[role="listbox"],
+.options,
+[class*="options"],
+[class*="listbox"] {
+    z-index: 9999 !important;
+    overflow: visible !important;
 }
 
 /* ============================================
@@ -301,10 +325,20 @@ async def start_scraping(url: str, mode: str, progress=gr.Progress()) -> Generat
     # Normalize URL (add https:// if missing)
     url = normalize_url(url)
 
+    # Show info notification
+    gr.Info(f"Scraping started for {url}")
+
     logs = []
     session_id = None
 
     try:
+        # Clear ChromaDB before starting new scrape
+        try:
+            vector_service.clear_collection()
+            logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Cleared vector database")
+        except Exception as e:
+            logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Warning: Failed to clear vectors: {e}")
+
         logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Starting scrape of {url}")
         yield None, format_logs(logs)
 
@@ -374,6 +408,9 @@ async def start_embedding(session_id: Optional[str]) -> Generator[str, None, Non
     if not session_id:
         yield format_logs(["No session to embed"])
         return
+
+    # Show info notification
+    gr.Info("Embedding process started")
 
     logs = []
     logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Starting embedding process...")
@@ -484,93 +521,117 @@ def extract_thinking_response(content: str) -> str:
     return cleaned.strip()
 
 
-async def chat_fn(message: str, history, llm_provider: str = "claude"):
-    """Query using direct vector search and LLM (Claude or Ollama)."""
+async def chat_fn(
+    message: str, history,
+    stage1_host: str, stage1_model_claude: str, stage1_model_hf: str,
+    stage1_model_ollama: str, stage1_provider: str, stage1_system_prompt: str,
+    stage3_host: str, stage3_model_claude: str, stage3_model_hf: str,
+    stage3_model_ollama: str, stage3_provider: str, stage3_system_prompt: str,
+    anthropic_key: str, huggingface_key: str, ollama_key: str, cohere_key: str
+):
+    """Query using direct vector search and LLM with per-stage configuration."""
     if not message or not message.strip():
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": "Please enter a question."})
         return history
 
+    # Resolve model based on host selection
+    def get_model(host, model_claude, model_hf, model_ollama):
+        if host == "Claude":
+            return model_claude
+        elif host == "HuggingFace":
+            return model_hf
+        else:  # Ollama
+            return model_ollama
+
+    stage1_model = get_model(stage1_host, stage1_model_claude, stage1_model_hf, stage1_model_ollama)
+    stage3_model = get_model(stage3_host, stage3_model_claude, stage3_model_hf, stage3_model_ollama)
+
+    # Use UI-provided API keys if available, otherwise fall back to settings
+    effective_anthropic_key = anthropic_key.strip() if anthropic_key else settings.anthropic_api_key
+    effective_hf_key = huggingface_key.strip() if huggingface_key else settings.huggingface_api_key
+    effective_ollama_key = ollama_key.strip() if ollama_key else settings.ollama_api_key
+    effective_cohere_key = cohere_key.strip() if cohere_key else settings.cohere_api_key
+
     try:
-        query_rewrite_prompt = f"""Given this user question about websites, rewrite it as an optimized search query.
-
-User Question: {message}
-
-Instructions:
-- Extract key concepts and keywords
-- Add relevant synonyms and related terms
-- Keep it concise (2-10 words)
-- Focus on terms likely to appear in website content
-- Do not add quotes or special characters
-
-Return ONLY the optimized search query, nothing else."""
+        # Format Stage 1 prompt - replace {original_query} placeholder with actual message
+        query_rewrite_prompt = stage1_system_prompt.replace("{original_query}", message)
 
         # Stage 1: Query Rewriting
-        if llm_provider == "ollama":
-            # Use Ollama (Kimi K2) for query rewriting
-            ollama_model = settings.ollama_model
-            ollama_host = settings.ollama_host
-            print(f"[CHAT] Stage 1: Calling Ollama {ollama_model} at {ollama_host} for query rewriting...")
+        if stage1_host == "Claude":
+            print(f"[CHAT] Stage 1: Calling Claude {stage1_model} for query rewriting...")
             try:
-                # Initialize Ollama client
-                if ollama_host == "https://ollama.com":
-                    ollama_client = ollama.Client(
-                        host=ollama_host,
-                        headers={"Authorization": f"Bearer {settings.ollama_api_key}"}
-                    )
-                else:
-                    ollama_client = ollama.Client(host=ollama_host)
-
-                # System message to encourage direct output (discourage thinking)
-                system_msg = "You are a search query optimizer. Output ONLY the optimized query, nothing else. No explanations, no thinking, just the query."
-
-                response = ollama_client.chat(
-                    model=ollama_model,
-                    messages=[
-                        {"role": "system", "content": system_msg},
-                        {"role": "user", "content": query_rewrite_prompt}
-                    ],
-                    options={"num_predict": 500}
-                )
-
-                raw_content = response.message.content
-                print(f"[CHAT] Stage 1 raw response: '{raw_content[:500] if raw_content else 'EMPTY'}'")
-
-                # Extract answer from thinking model (strips <think> tags)
-                optimized_query = extract_thinking_response(raw_content)
-
-                # Fallback to original query if empty or just "..."
-                if not optimized_query or optimized_query == "...":
-                    print(f"[CHAT] Stage 1 WARNING: Empty/invalid response, using original query")
-                    optimized_query = message
-
-                print(f"[CHAT] Stage 1 complete: Query rewritten to '{optimized_query}'")
-            except Exception as e:
-                print(f"[CHAT] Stage 1 FAILED (Ollama {ollama_model}): {e}")
-                raise
-        else:
-            # Use Claude Haiku for query rewriting
-            print("[CHAT] Stage 1: Calling Claude Haiku for query rewriting...")
-            try:
-                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                client = anthropic.Anthropic(api_key=effective_anthropic_key)
                 query_message = client.messages.create(
-                    model="claude-3-5-haiku-20241022",
+                    model=stage1_model,
                     max_tokens=100,
                     messages=[{"role": "user", "content": query_rewrite_prompt}]
                 )
                 optimized_query = query_message.content[0].text.strip()
                 print(f"[CHAT] Stage 1 complete: Query rewritten to '{optimized_query}'")
             except Exception as e:
-                print(f"[CHAT] Stage 1 FAILED (Claude Haiku): {e}")
+                print(f"[CHAT] Stage 1 FAILED (Claude {stage1_model}): {e}")
                 raise
 
-        # Stage 2: Vector Search + Reranking (Cohere embed + rerank) - same for both providers
+        elif stage1_host == "HuggingFace":
+            # Build full model ID with provider suffix if specified
+            hf_model = stage1_model
+            if stage1_provider and stage1_provider != "(none)":
+                hf_model = f"{stage1_model}:{stage1_provider}"
+            print(f"[CHAT] Stage 1: Calling HuggingFace {hf_model} for query rewriting...")
+            try:
+                hf_client = InferenceClient(token=effective_hf_key)
+                response = hf_client.chat.completions.create(
+                    model=hf_model,
+                    messages=[{"role": "user", "content": query_rewrite_prompt}],
+                    max_tokens=100
+                )
+                raw_content = response.choices[0].message.content
+                optimized_query = extract_thinking_response(raw_content)
+                if not optimized_query or optimized_query == "...":
+                    optimized_query = message
+                print(f"[CHAT] Stage 1 complete: Query rewritten to '{optimized_query}'")
+            except Exception as e:
+                print(f"[CHAT] Stage 1 FAILED (HuggingFace {hf_model}): {e}")
+                raise
+
+        else:  # Ollama
+            ollama_host = settings.ollama_host
+            print(f"[CHAT] Stage 1: Calling Ollama {stage1_model} at {ollama_host} for query rewriting...")
+            try:
+                if ollama_host == "https://ollama.com":
+                    ollama_client = ollama.Client(
+                        host=ollama_host,
+                        headers={"Authorization": f"Bearer {effective_ollama_key}"}
+                    )
+                else:
+                    ollama_client = ollama.Client(host=ollama_host)
+
+                system_msg = "You are a search query optimizer. Output ONLY the optimized query, nothing else. No explanations, no thinking, just the query."
+                response = ollama_client.chat(
+                    model=stage1_model,
+                    messages=[
+                        {"role": "system", "content": system_msg},
+                        {"role": "user", "content": query_rewrite_prompt}
+                    ],
+                    options={"num_predict": 500}
+                )
+                raw_content = response.message.content
+                optimized_query = extract_thinking_response(raw_content)
+                if not optimized_query or optimized_query == "...":
+                    optimized_query = message
+                print(f"[CHAT] Stage 1 complete: Query rewritten to '{optimized_query}'")
+            except Exception as e:
+                print(f"[CHAT] Stage 1 FAILED (Ollama {stage1_model}): {e}")
+                raise
+
+        # Stage 2: Vector Search + Reranking (Cohere embed + rerank) - always uses Cohere
         print("[CHAT] Stage 2: Calling Cohere embed-v4.0 + rerank-v4.0-fast...")
         try:
             results = vector_service.search(
                 query=optimized_query,
-                top_k=30,         # Retrieve more candidates
-                rerank_top_n=10   # Rerank to top 10
+                top_k=30,
+                rerank_top_n=10
             )
             print(f"[CHAT] Stage 2 complete: Retrieved {len(results)} results")
         except Exception as e:
@@ -589,21 +650,10 @@ Return ONLY the optimized search query, nothing else."""
                 f"[Source {i} - {result['site_name']} - {result['page_name']}]\n"
                 f"{result['chunk_text']}\n"
             )
-
         context = "\n---\n".join(context_parts)
 
-        system_prompt = """You are a helpful assistant answering questions about websites.
-
-You will be provided with relevant information extracted from websites. Use this information to answer the user's question accurately and naturally.
-
-Guidelines:
-- Provide a clear, concise answer based ONLY on the information given
-- If multiple sites are mentioned, organize the information clearly
-- Include specific details like addresses, prices, class types, hours when available
-- If the provided information doesn't fully answer the question, acknowledge what you can answer
-- Be conversational and helpful
-- Cite site names when providing specific information
-- Don't make up information not present in the sources"""
+        # Use custom Stage 3 system prompt
+        system_prompt = stage3_system_prompt
 
         user_prompt = f"""Based on the following information from websites, please answer this question:
 
@@ -615,49 +665,12 @@ Relevant Information from Websites:
 Please provide a natural, helpful answer based on this information."""
 
         # Stage 3: Answer Synthesis
-        if llm_provider == "ollama":
-            # Use Ollama (Kimi K2) for answer synthesis
-            ollama_model = settings.ollama_model
-            ollama_host = settings.ollama_host
-            print(f"[CHAT] Stage 3: Calling Ollama {ollama_model} for answer synthesis...")
+        if stage3_host == "Claude":
+            print(f"[CHAT] Stage 3: Calling Claude {stage3_model} for answer synthesis...")
             try:
-                # Initialize Ollama client (reuse if possible)
-                if ollama_host == "https://ollama.com":
-                    ollama_client = ollama.Client(
-                        host=ollama_host,
-                        headers={"Authorization": f"Bearer {settings.ollama_api_key}"}
-                    )
-                else:
-                    ollama_client = ollama.Client(host=ollama_host)
-
-                response = ollama_client.chat(
-                    model=ollama_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    options={"num_predict": 4096}  # More tokens for thinking + answer
-                )
-                raw_answer = response.message.content
-                print(f"[CHAT] Stage 3 raw response length: {len(raw_answer)} chars")
-
-                # Extract answer from thinking model (strips <think> tags)
-                answer = extract_thinking_response(raw_answer)
-
-                if not answer:
-                    answer = "I was unable to generate a response. Please try again."
-
-                print("[CHAT] Stage 3 complete: Answer generated")
-            except Exception as e:
-                print(f"[CHAT] Stage 3 FAILED (Ollama {ollama_model}): {e}")
-                raise
-        else:
-            # Use Claude Sonnet for answer synthesis
-            print("[CHAT] Stage 3: Calling Claude Sonnet for answer synthesis...")
-            try:
-                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                client = anthropic.Anthropic(api_key=effective_anthropic_key)
                 answer_message = client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                    model=stage3_model,
                     max_tokens=1024,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}]
@@ -665,7 +678,60 @@ Please provide a natural, helpful answer based on this information."""
                 answer = answer_message.content[0].text
                 print("[CHAT] Stage 3 complete: Answer generated")
             except Exception as e:
-                print(f"[CHAT] Stage 3 FAILED (Claude Sonnet): {e}")
+                print(f"[CHAT] Stage 3 FAILED (Claude {stage3_model}): {e}")
+                raise
+
+        elif stage3_host == "HuggingFace":
+            hf_model = stage3_model
+            if stage3_provider and stage3_provider != "(none)":
+                hf_model = f"{stage3_model}:{stage3_provider}"
+            print(f"[CHAT] Stage 3: Calling HuggingFace {hf_model} for answer synthesis...")
+            try:
+                hf_client = InferenceClient(token=effective_hf_key)
+                response = hf_client.chat.completions.create(
+                    model=hf_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    max_tokens=1024
+                )
+                raw_answer = response.choices[0].message.content
+                answer = extract_thinking_response(raw_answer)
+                if not answer:
+                    answer = "I was unable to generate a response. Please try again."
+                print("[CHAT] Stage 3 complete: Answer generated")
+            except Exception as e:
+                print(f"[CHAT] Stage 3 FAILED (HuggingFace {hf_model}): {e}")
+                raise
+
+        else:  # Ollama
+            ollama_host = settings.ollama_host
+            print(f"[CHAT] Stage 3: Calling Ollama {stage3_model} for answer synthesis...")
+            try:
+                if ollama_host == "https://ollama.com":
+                    ollama_client = ollama.Client(
+                        host=ollama_host,
+                        headers={"Authorization": f"Bearer {effective_ollama_key}"}
+                    )
+                else:
+                    ollama_client = ollama.Client(host=ollama_host)
+
+                response = ollama_client.chat(
+                    model=stage3_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    options={"num_predict": 4096}
+                )
+                raw_answer = response.message.content
+                answer = extract_thinking_response(raw_answer)
+                if not answer:
+                    answer = "I was unable to generate a response. Please try again."
+                print("[CHAT] Stage 3 complete: Answer generated")
+            except Exception as e:
+                print(f"[CHAT] Stage 3 FAILED (Ollama {stage3_model}): {e}")
                 raise
 
         history.append({"role": "user", "content": message})
@@ -701,10 +767,24 @@ def handle_feedback(data: gr.LikeData):
     print(f"[FEEDBACK] Message content: {message_value}")
 
 
-async def handle_example_click(evt: gr.SelectData, history, llm_provider: str = "claude"):
+async def handle_example_click(
+    evt: gr.SelectData, history,
+    stage1_host: str, stage1_model_claude: str, stage1_model_hf: str,
+    stage1_model_ollama: str, stage1_provider: str, stage1_system_prompt: str,
+    stage3_host: str, stage3_model_claude: str, stage3_model_hf: str,
+    stage3_model_ollama: str, stage3_provider: str, stage3_system_prompt: str,
+    anthropic_key: str, huggingface_key: str, ollama_key: str, cohere_key: str
+):
     """Handle when user clicks an example question."""
     example_text = evt.value.get("text", "")
-    return await chat_fn(example_text, history, llm_provider)
+    return await chat_fn(
+        example_text, history,
+        stage1_host, stage1_model_claude, stage1_model_hf,
+        stage1_model_ollama, stage1_provider, stage1_system_prompt,
+        stage3_host, stage3_model_claude, stage3_model_hf,
+        stage3_model_ollama, stage3_provider, stage3_system_prompt,
+        anthropic_key, huggingface_key, ollama_key, cohere_key
+    )
 
 
 # Build Gradio interface
@@ -712,7 +792,7 @@ with gr.Blocks(title="Agentic Scraper") as demo:
     gr.HTML(f"<style>{custom_css}</style>")
 
     gr.HTML("<h1>Agentic <span style='color: #C6603F;'>Scraper</span></h1>")
-    gr.Markdown("Scrape any website and ask questions powered by Claude/Ollama AI and Cohere embeddings")
+    gr.Markdown("Scrape any website and ask questions powered by Claude/HuggingFace/Ollama AI and Cohere embeddings")
 
     # State
     session_id_state = gr.State(None)
@@ -737,15 +817,200 @@ with gr.Blocks(title="Agentic Scraper") as demo:
         elem_classes="mode-radio"
     )
 
-    # LLM Provider selection
-    llm_provider_radio = gr.Radio(
-        choices=["claude", "ollama"],
-        value="claude",
-        label="LLM Provider",
-        show_label=True,
-        scale=1,
-        info="Claude: Haiku + Sonnet | Ollama: Kimi K2 (local or cloud)",
-        elem_classes="llm-provider-radio"
+    # Advanced LLM Settings Accordion
+    with gr.Accordion("Advanced LLM Settings", open=False):
+        gr.Markdown("### Stage 1 (Query Optimization)")
+        with gr.Row():
+            stage1_host = gr.Dropdown(
+                choices=["Claude", "HuggingFace", "Ollama"],
+                value="Claude",
+                label="Host",
+                scale=1,
+                interactive=True
+            )
+            stage1_model_claude = gr.Dropdown(
+                choices=["claude-3-5-haiku-20241022", "claude-sonnet-4-20250514"],
+                value="claude-3-5-haiku-20241022",
+                label="Model",
+                visible=True,
+                scale=2,
+                interactive=True,
+                allow_custom_value=True
+            )
+            stage1_model_hf = gr.Dropdown(
+                choices=["moonshotai/Kimi-K2-Instruct", "Qwen/Qwen3-235B-A22B", "deepseek-ai/DeepSeek-R1-0528"],
+                value="moonshotai/Kimi-K2-Instruct",
+                label="Model",
+                visible=False,
+                scale=2,
+                interactive=True,
+                allow_custom_value=True
+            )
+            stage1_model_ollama = gr.Dropdown(
+                choices=["kimi-k2-thinking:cloud", "kimi-k2:1t-cloud"],
+                value="kimi-k2-thinking:cloud",
+                label="Model",
+                visible=False,
+                scale=2,
+                interactive=True,
+                allow_custom_value=True
+            )
+            stage1_provider = gr.Dropdown(
+                choices=["(none)", "fastest", "cheapest", "together", "nebius", "novita", "groq", "sambanova", "cohere", "cerebras", "nscale", "hyperbolic", "scaleway"],
+                value="(none)",
+                label="Provider",
+                visible=False,
+                scale=1,
+                interactive=True,
+                allow_custom_value=True
+            )
+        stage1_system_prompt = gr.TextArea(
+            value="""Given this user question about websites, rewrite it as an optimized search query.
+
+User Question: {original_query}
+
+Instructions:
+- Extract key concepts and keywords
+- Add relevant synonyms and related terms
+- Keep it concise (2-10 words)
+- Focus on terms likely to appear in website content
+- Do not add quotes or special characters
+
+Return ONLY the optimized search query, nothing else.""",
+            label="Stage 1 System Prompt",
+            visible=True,
+            lines=4,
+            max_lines=4,
+            scale=1,
+            interactive=True
+        )
+
+        gr.Markdown("### Stage 3 (Answer Synthesis)")
+        with gr.Row():
+            stage3_host = gr.Dropdown(
+                choices=["Claude", "HuggingFace", "Ollama"],
+                value="Claude",
+                label="Host",
+                scale=1,
+                interactive=True
+            )
+            stage3_model_claude = gr.Dropdown(
+                choices=["claude-3-5-haiku-20241022", "claude-sonnet-4-20250514"],
+                value="claude-sonnet-4-20250514",
+                label="Model",
+                visible=True,
+                scale=2,
+                interactive=True,
+                allow_custom_value=True
+            )
+            stage3_model_hf = gr.Dropdown(
+                choices=["moonshotai/Kimi-K2-Instruct", "Qwen/Qwen3-235B-A22B", "deepseek-ai/DeepSeek-R1-0528"],
+                value="moonshotai/Kimi-K2-Instruct",
+                label="Model",
+                visible=False,
+                scale=2,
+                interactive=True,
+                allow_custom_value=True
+            )
+            stage3_model_ollama = gr.Dropdown(
+                choices=["kimi-k2-thinking:cloud", "kimi-k2:1t-cloud"],
+                value="kimi-k2-thinking:cloud",
+                label="Model",
+                visible=False,
+                scale=2,
+                interactive=True,
+                allow_custom_value=True
+            )
+            stage3_provider = gr.Dropdown(
+                choices=["(none)", "fastest", "cheapest", "together", "nebius", "novita", "groq", "sambanova", "cohere", "cerebras", "nscale", "hyperbolic", "scaleway"],
+                value="(none)",
+                label="Provider",
+                visible=False,
+                scale=1,
+                interactive=True,
+                allow_custom_value=True
+            )
+        stage3_system_prompt = gr.TextArea(
+            value="""You are a helpful assistant answering questions about websites.
+
+You will be provided with relevant information extracted from websites. Use this information to answer the user's question accurately and naturally.
+
+Guidelines:
+- Provide a clear, concise answer based ONLY on the information given
+- If multiple sites are mentioned, organize the information clearly
+- Include specific details like addresses, prices, class types, hours when available
+- If the provided information doesn't fully answer the question, acknowledge what you can answer
+- Be conversational and helpful
+- Cite site names when providing specific information
+- Don't make up information not present in the sources""",
+            label="Stage 3 System Prompt",
+            visible=True,
+            lines=4,
+            max_lines=4,
+            scale=1,
+            interactive=True
+        )
+
+        gr.Markdown("### API Keys")
+        with gr.Row():
+            anthropic_key = gr.Textbox(
+                label="Anthropic API Key",
+                type="password",
+                placeholder="sk-ant-...",
+                scale=2
+            )
+            gr.HTML('<a href="https://console.anthropic.com/settings/keys" target="_blank" style="color: #C6603F;">Get key</a>')
+        with gr.Row():
+            huggingface_key = gr.Textbox(
+                label="HuggingFace API Key",
+                type="password",
+                placeholder="hf_...",
+                scale=2
+            )
+            gr.HTML('<a href="https://huggingface.co/settings/tokens" target="_blank" style="color: #C6603F;">Get key</a>')
+        with gr.Row():
+            ollama_key = gr.Textbox(
+                label="Ollama API Key (for cloud)",
+                type="password",
+                placeholder="(optional for local)",
+                scale=2
+            )
+        with gr.Row():
+            cohere_key = gr.Textbox(
+                label="Cohere API Key (required)",
+                type="password",
+                placeholder="...",
+                scale=2
+            )
+            gr.HTML('<a href="https://dashboard.cohere.com/api-keys" target="_blank" style="color: #C6603F;">Get key</a>')
+
+    # Event handlers for conditional visibility
+    def update_stage1_visibility(host):
+        return (
+            gr.update(visible=(host == "Claude")),
+            gr.update(visible=(host == "HuggingFace")),
+            gr.update(visible=(host == "Ollama")),
+            gr.update(visible=(host == "HuggingFace"))
+        )
+
+    def update_stage3_visibility(host):
+        return (
+            gr.update(visible=(host == "Claude")),
+            gr.update(visible=(host == "HuggingFace")),
+            gr.update(visible=(host == "Ollama")),
+            gr.update(visible=(host == "HuggingFace"))
+        )
+
+    stage1_host.change(
+        fn=update_stage1_visibility,
+        inputs=[stage1_host],
+        outputs=[stage1_model_claude, stage1_model_hf, stage1_model_ollama, stage1_provider]
+    )
+
+    stage3_host.change(
+        fn=update_stage3_visibility,
+        inputs=[stage3_host],
+        outputs=[stage3_model_claude, stage3_model_hf, stage3_model_ollama, stage3_provider]
     )
 
     # Progress Section
@@ -818,10 +1083,20 @@ with gr.Blocks(title="Agentic Scraper") as demo:
         outputs=[msg_input, send_btn]
     )
 
+    # Chat inputs list (for reuse)
+    chat_inputs = [
+        msg_input, chatbot,
+        stage1_host, stage1_model_claude, stage1_model_hf,
+        stage1_model_ollama, stage1_provider, stage1_system_prompt,
+        stage3_host, stage3_model_claude, stage3_model_hf,
+        stage3_model_ollama, stage3_provider, stage3_system_prompt,
+        anthropic_key, huggingface_key, ollama_key, cohere_key
+    ]
+
     # Chat handlers
     msg_submit = msg_input.submit(
         fn=chat_fn,
-        inputs=[msg_input, chatbot, llm_provider_radio],
+        inputs=chat_inputs,
         outputs=[chatbot]
     ).then(
         fn=lambda: "",
@@ -830,7 +1105,7 @@ with gr.Blocks(title="Agentic Scraper") as demo:
 
     send_click = send_btn.click(
         fn=chat_fn,
-        inputs=[msg_input, chatbot, llm_provider_radio],
+        inputs=chat_inputs,
         outputs=[chatbot]
     ).then(
         fn=lambda: "",
@@ -842,30 +1117,46 @@ with gr.Blocks(title="Agentic Scraper") as demo:
     # Feedback handler
     chatbot.like(fn=handle_feedback, inputs=None, outputs=None)
 
+    # Example select inputs (chatbot + all config)
+    example_inputs = [
+        chatbot,
+        stage1_host, stage1_model_claude, stage1_model_hf,
+        stage1_model_ollama, stage1_provider, stage1_system_prompt,
+        stage3_host, stage3_model_claude, stage3_model_hf,
+        stage3_model_ollama, stage3_provider, stage3_system_prompt,
+        anthropic_key, huggingface_key, ollama_key, cohere_key
+    ]
+
     # Example select handler
     chatbot.example_select(
         fn=handle_example_click,
-        inputs=[chatbot, llm_provider_radio],
+        inputs=example_inputs,
         outputs=[chatbot]
     )
 
 
 def validate_environment():
     """Check required environment variables before starting."""
-    # Check Anthropic API key (required for Claude provider)
+    # Check Anthropic API key (optional, for Claude provider)
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
     if anthropic_key and anthropic_key.strip():
         print(f"[STARTUP] ANTHROPIC_API_KEY is set: {anthropic_key[:15]}...")
     else:
-        print("[STARTUP] ANTHROPIC_API_KEY not set (Claude provider will not work)")
+        print("[STARTUP] ANTHROPIC_API_KEY not set (Claude provider will not work without UI key)")
 
-    # Check Cohere API key (required for embeddings)
+    # Check HuggingFace API key (optional, for HuggingFace provider)
+    hf_key = os.getenv("HUGGINGFACE_API_KEY")
+    if hf_key and hf_key.strip():
+        print(f"[STARTUP] HUGGINGFACE_API_KEY is set: {hf_key[:15]}...")
+    else:
+        print("[STARTUP] HUGGINGFACE_API_KEY not set (HuggingFace provider will not work without UI key)")
+
+    # Check Cohere API key (required for embeddings - can be set via env or UI)
     cohere_key = os.getenv("COHERE_API_KEY")
-    if not cohere_key or not cohere_key.strip():
-        print("[ERROR] COHERE_API_KEY environment variable must be set")
-        print("[ERROR] Add it in your Space's Settings > Repository secrets")
-        sys.exit(1)
-    print(f"[STARTUP] COHERE_API_KEY is set: {cohere_key[:15]}...")
+    if cohere_key and cohere_key.strip():
+        print(f"[STARTUP] COHERE_API_KEY is set: {cohere_key[:15]}...")
+    else:
+        print("[STARTUP] COHERE_API_KEY not set (can be provided via UI)")
 
     # Check Ollama configuration (optional, for Ollama provider)
     ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -876,11 +1167,7 @@ def validate_environment():
     else:
         print("[STARTUP] OLLAMA_API_KEY not set (required for Ollama Cloud)")
 
-    # Ensure at least one LLM provider is available
-    if not (anthropic_key and anthropic_key.strip()) and not ollama_host:
-        print("[ERROR] At least one LLM provider must be configured")
-        print("[ERROR] Set ANTHROPIC_API_KEY for Claude or OLLAMA_HOST for Ollama")
-        sys.exit(1)
+    print("[STARTUP] API keys can be configured via UI in Advanced LLM Settings")
 
 
 def setup_directories():

@@ -7,6 +7,7 @@ import os
 
 from .config import settings
 from .routes import scrape, sessions, embed, query
+from .routes.v1 import router as v1_router
 from .utils.logger import logger
 
 # Suppress tokenizers parallelism warning
@@ -93,6 +94,9 @@ app.include_router(sessions.router)
 app.include_router(embed.router)
 app.include_router(query.router)
 
+# V1 API routes (agentic scraping)
+app.include_router(v1_router)
+
 
 # WebSocket endpoint
 @app.websocket("/ws/{session_id}")
@@ -159,6 +163,8 @@ async def root():
         "version": "1.0.0",
         "docs": "/docs",
         "health": "/health",
+        "agentic_api": "/api/v1/scrape/agentic",
+        "agentic_ws": "/api/v1/scrape/agentic/ws",
     }
 
 

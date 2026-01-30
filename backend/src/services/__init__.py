@@ -12,6 +12,8 @@ from .llm_provider import (
     get_query_provider,
     get_answer_provider,
 )
+# Trafilatura-based content extraction
+from .trafilatura_service import TrafilaturaService, trafilatura_service
 
 __all__ = [
     "StorageService",
@@ -27,4 +29,6 @@ __all__ = [
     "OllamaProvider",
     "get_query_provider",
     "get_answer_provider",
+    "TrafilaturaService",
+    "trafilatura_service",
 ]

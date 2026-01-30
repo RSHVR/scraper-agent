@@ -7,6 +7,12 @@ from .session import (
     SessionStatus,
     ScrapeMode,
 )
+from .agentic import (
+    AgentCostMetrics,
+    AgentResult,
+    AgenticScrapeRequest,
+    AgentMessage,
+)
 
 __all__ = [
     "ScrapeRequest",
@@ -17,4 +23,8 @@ __all__ = [
     "SessionMetadata",
     "SessionStatus",
     "ScrapeMode",
+    "AgentCostMetrics",
+    "AgentResult",
+    "AgenticScrapeRequest",
+    "AgentMessage",
 ]

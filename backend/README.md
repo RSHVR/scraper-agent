@@ -10,13 +10,16 @@ AI-powered web scraping agent with intelligent data extraction using Claude.
 - **Automated data extraction** from HTML content
 - **Session management** with file system storage
 - **Full type safety** with Pydantic models
+- **Authentication** via Supabase Auth (JWT) and API keys
+- **User-based rate limiting** for authenticated requests
 
 ## Setup
 
 ### Prerequisites
 
 - Python 3.11 or higher
-- Anthropic API key
+- Anthropic API key (or other LLM provider)
+- Supabase project (for authentication)
 
 ### Installation
 
@@ -37,9 +40,23 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-4. Edit `.env` and add your Anthropic API key:
-```
+4. Edit `.env` and configure required variables:
+```bash
+# LLM Provider (at least one required)
 ANTHROPIC_API_KEY=your_api_key_here
+
+# Supabase Authentication (required)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_KEY=eyJ...
+SUPABASE_JWT_SECRET=your-jwt-secret
+```
+
+5. Set up Supabase database tables:
+```bash
+# Run the migration in Supabase SQL Editor
+# Dashboard -> SQL Editor -> New Query
+# Paste contents of: supabase/migrations/001_auth_tables.sql
 ```
 
 ## Running the Server
@@ -189,11 +206,96 @@ Features:
 
 ## API Endpoints
 
+### Authentication
+
+All scraping endpoints require authentication via JWT token or API key.
+
+**Register**
+```bash
+POST /api/auth/register
+Content-Type: application/json
+
+{"email": "user@example.com", "password": "securepassword"}
+```
+
+**Login**
+```bash
+POST /api/auth/login
+Content-Type: application/json
+
+{"email": "user@example.com", "password": "securepassword"}
+```
+
+Response:
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "...",
+  "token_type": "bearer",
+  "expires_in": 3600
+}
+```
+
+**Get Current User**
+```bash
+GET /api/auth/me
+Authorization: Bearer <access_token>
+```
+
+**Refresh Token**
+```bash
+POST /api/auth/refresh
+Content-Type: application/json
+
+{"refresh_token": "..."}
+```
+
+### API Keys
+
+Create API keys for programmatic access (requires JWT authentication).
+
+**List API Keys**
+```bash
+GET /api/keys
+Authorization: Bearer <access_token>
+```
+
+**Create API Key**
+```bash
+POST /api/keys
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{"name": "My Script", "expires_in_days": 90}
+```
+
+Response:
+```json
+{
+  "id": "uuid",
+  "name": "My Script",
+  "key": "sk_aBcDeFg...",  // Only shown once!
+  "key_prefix": "sk_aBcDeFg...",
+  "scopes": ["scrape:read", "scrape:write"],
+  "expires_at": "2024-04-01T00:00:00Z"
+}
+```
+
+**Revoke API Key**
+```bash
+DELETE /api/keys/{key_id}
+Authorization: Bearer <access_token>
+```
+
 ### Scraping
+
+> **Note:** All scraping endpoints require authentication.
 
 **Create Scrape Session**
 ```bash
 POST /api/scrape
+Authorization: Bearer <access_token>
+# Or: X-API-Key: sk_...
 ```
 
 Request body:
@@ -240,6 +342,13 @@ Connect to real-time updates:
 ws://localhost:8000/ws/{session_id}
 ```
 
+**Agentic Scraping WebSocket** (requires authentication via query params):
+```
+ws://localhost:8000/api/v1/scrape/agentic/ws?token=<jwt>
+# Or:
+ws://localhost:8000/api/v1/scrape/agentic/ws?api_key=<key>
+```
+
 ## Testing
 
 Run all tests:
@@ -262,19 +371,44 @@ pytest tests/test_services.py
 ### Using curl
 
 ```bash
-# Create a scraping session
+# 1. Register a new user
+curl -X POST http://localhost:8000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "securepassword"}'
+
+# 2. Login to get access token
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "securepassword"}'
+# Returns: {"access_token": "eyJ...", ...}
+
+# 3. Create an API key (for programmatic access)
+curl -X POST http://localhost:8000/api/keys \
+  -H "Authorization: Bearer eyJ..." \
+  -H "Content-Type: application/json" \
+  -d '{"name": "My Script"}'
+# Returns: {"key": "sk_aBcDeFg...", ...}
+
+# 4. Create a scraping session (using API key)
 curl -X POST http://localhost:8000/api/scrape \
+  -H "X-API-Key: sk_aBcDeFg..." \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com",
     "purpose": "Extract contact information and business hours"
   }'
 
-# Get session details
-curl http://localhost:8000/api/sessions/{session_id}
+# Or using JWT token:
+curl -X POST http://localhost:8000/api/scrape \
+  -H "Authorization: Bearer eyJ..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com",
+    "purpose": "Extract contact information"
+  }'
 
-# List all sessions
-curl http://localhost:8000/api/sessions
+# Get session details
+curl -H "X-API-Key: sk_..." http://localhost:8000/api/sessions/{session_id}
 ```
 
 ### Using Python
@@ -285,9 +419,21 @@ import asyncio
 
 async def scrape_example():
     async with httpx.AsyncClient() as client:
+        # Login to get access token
+        auth_response = await client.post(
+            "http://localhost:8000/api/auth/login",
+            json={
+                "email": "user@example.com",
+                "password": "securepassword"
+            }
+        )
+        token = auth_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
         # Create scraping session
         response = await client.post(
             "http://localhost:8000/api/scrape",
+            headers=headers,
             json={
                 "url": "https://example.com",
                 "purpose": "Extract contact information"
@@ -301,12 +447,30 @@ async def scrape_example():
 
         # Get results
         response = await client.get(
-            f"http://localhost:8000/api/sessions/{session_id}"
+            f"http://localhost:8000/api/sessions/{session_id}",
+            headers=headers
         )
         session = response.json()
         print(session["extracted_data"])
 
 asyncio.run(scrape_example())
+```
+
+### Using API Key (Recommended for Scripts)
+
+```python
+import httpx
+
+API_KEY = "sk_aBcDeFg..."  # Your API key
+headers = {"X-API-Key": API_KEY}
+
+# Create scraping session
+response = httpx.post(
+    "http://localhost:8000/api/scrape",
+    headers=headers,
+    json={"url": "https://example.com", "purpose": "Extract data"}
+)
+print(response.json())
 ```
 
 ## Project Structure
@@ -315,15 +479,27 @@ asyncio.run(scrape_example())
 backend/
 ├── src/
 │   ├── agents/           # AI agents (orchestrator, schema gen, extractor)
+│   ├── auth/             # Authentication (Supabase, API keys)
+│   │   ├── __init__.py
+│   │   ├── api_keys.py       # API key generation/validation
+│   │   ├── dependencies.py   # FastAPI auth dependencies
+│   │   └── supabase_client.py
 │   ├── models/           # Pydantic data models
+│   │   └── auth.py           # Auth request/response models
 │   ├── routes/           # API endpoints
+│   │   ├── auth.py           # /api/auth/* endpoints
+│   │   └── keys.py           # /api/keys/* endpoints
 │   ├── services/         # Business logic services
 │   ├── utils/            # Utilities (logging, etc.)
 │   ├── config.py         # Configuration
 │   └── main.py           # FastAPI application
+├── supabase/
+│   └── migrations/       # SQL migrations for Supabase
+│       └── 001_auth_tables.sql
 ├── tests/                # Test files
 ├── requirements.txt      # Production dependencies
 ├── requirements-dev.txt  # Development dependencies
+├── .env.example          # Environment variables template
 └── pytest.ini           # Pytest configuration
 ```
 
@@ -363,9 +539,20 @@ This project uses:
 - Ensure virtual environment is activated
 - Reinstall dependencies: `pip install -r requirements.txt`
 
-**Issue: API key errors**
+**Issue: LLM API key errors**
 - Check `.env` file exists and has valid `ANTHROPIC_API_KEY`
 - Ensure API key has proper permissions
+
+**Issue: Authentication errors (401)**
+- Verify Supabase environment variables are set correctly
+- Check that JWT token hasn't expired (refresh with `/api/auth/refresh`)
+- For API keys, ensure the key is active and not expired
+- Verify `SUPABASE_JWT_SECRET` matches your Supabase project
+
+**Issue: Supabase connection errors**
+- Confirm `SUPABASE_URL` is correct (format: `https://xxx.supabase.co`)
+- Check that database tables exist (run the migration SQL)
+- Verify `SUPABASE_SERVICE_KEY` has admin privileges
 
 **Issue: Storage path errors**
 - Check `STORAGE_BASE_PATH` in `.env`

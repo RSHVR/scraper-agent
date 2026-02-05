@@ -13,6 +13,18 @@ from .agentic import (
     AgenticScrapeRequest,
     AgentMessage,
 )
+from .auth import (
+    AuthContext,
+    RegisterRequest,
+    LoginRequest,
+    AuthResponse,
+    RefreshRequest,
+    UserProfile,
+    APIKeyCreate,
+    APIKeyResponse,
+    APIKeyInfo,
+    APIKeyList,
+)
 
 __all__ = [
     "ScrapeRequest",
@@ -27,4 +39,15 @@ __all__ = [
     "AgentResult",
     "AgenticScrapeRequest",
     "AgentMessage",
+    # Auth models
+    "AuthContext",
+    "RegisterRequest",
+    "LoginRequest",
+    "AuthResponse",
+    "RefreshRequest",
+    "UserProfile",
+    "APIKeyCreate",
+    "APIKeyResponse",
+    "APIKeyInfo",
+    "APIKeyList",
 ]

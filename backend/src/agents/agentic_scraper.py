@@ -81,39 +81,13 @@ class AgenticScraper:
         return tools
 
     def _build_agent(self, tools: list):
-        """
-        Create agent based on model capabilities.
-
-        For most models, LangGraph's create_react_agent uses native JSON tool calling.
-        For llama3-groq-tool-use, we use a custom XML-based agent that matches
-        the model's training format.
-        """
-        # Models that require XML tool format instead of JSON
-        XML_TOOL_MODELS = ["llama3-groq-tool-use"]
-
-        # Check if this model needs XML format
-        model_name = self.model or ""
-        needs_xml = self.provider == "ollama" and any(
-            xml_model in model_name for xml_model in XML_TOOL_MODELS
+        """Create LangGraph ReAct agent with native tool calling."""
+        logger.info(f"Using LangGraph ReAct agent for provider: {self.provider}")
+        return create_react_agent(
+            model=self.llm,
+            tools=tools,
+            prompt=SCRAPER_SYSTEM_PROMPT
         )
-
-        if needs_xml:
-            logger.info(f"Using XMLToolAgent for model: {model_name}")
-            from .xml_agent import XMLToolAgent
-            return XMLToolAgent(
-                llm=self.llm,
-                tools=tools,
-                max_iterations=self.max_iterations,
-                metrics=self.metrics
-            )
-        else:
-            # Use LangGraph for Claude and other JSON-capable models
-            logger.info(f"Using LangGraph ReAct agent for provider: {self.provider}")
-            return create_react_agent(
-                model=self.llm,
-                tools=tools,
-                prompt=SCRAPER_SYSTEM_PROMPT
-            )
 
     def _parse_output(self, output: Any) -> Any:
         """Parse tool output, handling JSON strings."""
@@ -124,11 +98,6 @@ class AgenticScraper:
                 return {"raw": output}
         return output
 
-    def _is_xml_agent(self, agent) -> bool:
-        """Check if agent is an XMLToolAgent (has direct run method)."""
-        from .xml_agent import XMLToolAgent
-        return isinstance(agent, XMLToolAgent)
-
     async def run(
         self,
         goal: str,
@@ -137,9 +106,6 @@ class AgenticScraper:
     ) -> AgentResult:
         """
         Execute the agent until goal is achieved or max iterations.
-
-        Automatically routes to XMLToolAgent.run() for XML-format models
-        or LangGraph's astream_events for JSON-capable models.
 
         Args:
             goal: What the user wants to achieve
@@ -154,17 +120,7 @@ class AgenticScraper:
         agent = self._build_agent(tools)
 
         try:
-            # XMLToolAgent has its own run method that handles everything
-            if self._is_xml_agent(agent):
-                logger.info(f"Running XMLToolAgent for goal: {goal}")
-                result = await agent.run(goal, url, on_message)
-                # Update metrics from XML agent
-                self.metrics = result.metrics or self.metrics
-                return result
-
-            # LangGraph agent uses streaming events
             return await self._run_langgraph_agent(agent, goal, url, on_message)
-
         finally:
             # Cleanup browser contexts
             await self._cleanup()

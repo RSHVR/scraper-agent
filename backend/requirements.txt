@@ -3,6 +3,7 @@ fastapi>=0.104.1
 uvicorn[standard]>=0.24.0
 pydantic>=2.7.0,<3.0.0
 pydantic-settings>=2.1.0
+slowapi>=0.1.9
 
 # Anthropic SDK
 anthropic>=0.72.0
@@ -52,3 +53,9 @@ ddgs>=9.0.0
 
 # Content extraction
 trafilatura>=1.6.0
+
+# Authentication
+supabase>=2.0.0
+PyJWT>=2.8.0
+argon2-cffi>=23.1.0
+email-validator>=2.0.0

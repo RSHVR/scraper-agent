@@ -1,9 +1,11 @@
 """Scraping API endpoints."""
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 from typing import Dict, Any
 
 from ..models import ScrapeRequest, ScrapeResponse, SessionStatus
+from ..models.auth import AuthContext
 from ..agents import orchestrator
+from ..auth.dependencies import get_current_user
 from ..utils.logger import logger
 from ..services.storage_service import storage_service
 
@@ -12,13 +14,20 @@ router = APIRouter(prefix="/api", tags=["scrape"])
 
 @router.post("/scrape", response_model=ScrapeResponse)
 async def create_scrape_session(
-    request: ScrapeRequest, background_tasks: BackgroundTasks
+    request: ScrapeRequest,
+    background_tasks: BackgroundTasks,
+    auth: AuthContext = Depends(get_current_user),
 ) -> ScrapeResponse:
     """Create a new scraping session.
+
+    Requires authentication via:
+    - Bearer token (JWT) in Authorization header
+    - API key in X-API-Key header
 
     Args:
         request: Scraping request with URL, purpose, optional schema, and mode
         background_tasks: FastAPI background tasks
+        auth: Authenticated user context
 
     Returns:
         Scrape response with session ID and status
@@ -57,8 +66,8 @@ async def create_scrape_session(
         )
 
     except Exception as e:
-        logger.error(f"Error creating scrape session: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error creating scrape session: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 async def execute_scrape_task(request: ScrapeRequest, session_id: str) -> None:
@@ -123,5 +132,5 @@ async def get_session_status(session_id: str) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting session status: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error getting session status: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
